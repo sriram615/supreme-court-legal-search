@@ -1,0 +1,18 @@
+# Exclude heavy dataset folders and databases
+LAWdata_Corpus_2024/
+data/
+*.index
+*.db
+*.sqlite3
+*.pdf
+
+# Exclude log files
+*.log
+
+# Exclude python cache & environments
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+.venv311/
