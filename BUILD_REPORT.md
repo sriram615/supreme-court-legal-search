@@ -640,7 +640,7 @@ Following `.agents/rules/verification-discipline.md` (rules #1, #3, #6), a full 
 
 #### Evaluation Data Provenance & Baseline Methodology
 To guarantee 100% empirical rigor, evaluation evidence is recorded across three separate files:
-1. **Pre-Fix Hand-Reconstructed Baseline (`eval/raw_results_true_baseline.jsonl`):** Hand-reconstructed baseline at $W=2.5$ incorporating pre-fix candidate matching logic (no `title_index`, no party-noun short-token filter, and no Article/Section prefix gating). Cross-checked per Step 1 audit against the real §8e-1 bug logic `(_full_sec_has_letter and full_sec in txt) or _sec_pat_fast.search(txt)`. Across all 30 `STATUTORY_SECTION` queries, candidate extraction and top-5 evaluation results match the baseline run.
+1. **Pre-Fix Hand-Reconstructed Baseline (`eval/raw_results_true_baseline.jsonl`):** Hand-reconstructed baseline at $W=2.5$ incorporating pre-fix candidate matching logic (no `title_index`, no party-noun short-token filter, and no Article/Section prefix gating). Cross-checked per Step 1 audit against the real §8e-1 bug logic `(_full_sec_has_letter and full_sec in txt) or _sec_pat_fast.search(txt)`. Across all 30 `STATUTORY_SECTION` queries, top-5 Hit@5 evaluation results closely match (29/30 identical; 1 query differs — see Step 1/2 audit).
 2. **Mid-Session Diagnostic Snapshot (`eval/raw_results.jsonl`):** Intermediate test run captured during mid-session RRF weight experimentation ($W=5.0$). Retained as a diagnostic reference snapshot.
 3. **Current Post-Fix Engine (`eval/raw_results_post_fix.jsonl`):** Production search engine with all fixes active and RRF weight realigned to $W=2.5$.
 
