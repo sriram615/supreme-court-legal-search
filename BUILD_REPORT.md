@@ -488,7 +488,7 @@ Following `.agents/rules/verification-discipline.md` (rules #1, #2, #3, #4, #6),
 
 #### Finding 2: Root-Cause Fix for Short-Token Party Nouns
 - **Issue:** `classify_and_extract_query()` extracted 1- and 2-character initials (`'k'`, `'s'`, `'n'`, `'m'`, `'dr'`) into `primary_party_nouns`. While `title_index` filtered short tokens itself during lookup, downstream helper functions like `evaluate_routed_relevance()`'s Route B evaluated `p in header_text` directly against `primary_party_nouns`, retaining the single-letter non-selectivity bug.
-- **Fix Applied (`search_engine.py`):** Added `len(w) >= 3` filtering to `party_nouns` and `primary_party_nouns` in `classify_and_extract_query()` ([search_engine.py:L151-L152](file:///Users/apple/Desktop/AI-ML/LAWdata/search_engine.py#L151-L152)).
+- **Fix Applied (`search_engine.py`):** Added `len(w) >= 3` filtering to `party_nouns` and `primary_party_nouns` in `classify_and_extract_query()` (`search_engine.py#L151-L152`).
 - **Verification:** Confirmed `title_index` candidate sets for all 9 benchmark queries remained 100% identical post-fix, and added direct unit assertion confirming `classify_and_extract_query("K.S. Puttaswamy v. Union of India")["primary_party_nouns"]` produces `["puttaswamy"]` with `'k'` and `'s'` removed.
 
 #### Posting-List Distribution for `title_index` (Rule #2)

@@ -1,3 +1,10 @@
+"""
+DEPRECATION NOTICE: main.py is deprecated.
+Please use app.py (uvicorn app:app) for production deployments.
+app.py features async lifespan management, strict index missing validation,
+and multi-stage intent verification.
+"""
+
 import time
 import logging
 from typing import List, Dict, Any
@@ -9,8 +16,9 @@ from search_engine import LegalSearchEngine
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("SearchAPI")
+logger.warning("DEPRECATION WARNING: main.py is deprecated. Use 'uvicorn app:app' for the production API server.")
 
-app = FastAPI(title="Legal Document Search API", version="1.0.0")
+app = FastAPI(title="Legal Document Search API (Deprecated)", version="1.0.0-deprecated")
 
 try:
     engine = LegalSearchEngine(index_dir="./LAWdata_Corpus_2024")

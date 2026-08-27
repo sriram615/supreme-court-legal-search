@@ -339,73 +339,47 @@ async def post(text: str):
         matches = res.get("semantic_matches", [])
         verdict = res.get("verification_verdict")
 
-        # ── 1.5. Referee LLM Governance Verdict Card ──
+        # ── 1. LLM Verification Verdict Card ──
         verdict_card = ""
         if verdict:
             verdict_agreement = verdict.get("verdict_agreement", False)
             rationale = verdict.get("legal_rationale", "")
             confidence = verdict.get("confidence_rating", 0.0)
             
-            verdict_status = "CONFIRMED" if verdict_agreement else "DISMISSED"
-            verdict_color = "text-red-400" if verdict_agreement else "text-emerald-400"
-            badge_bg = "bg-red-500/10 border-red-500/30" if verdict_agreement else "bg-emerald-500/10 border-emerald-500/30"
-            
-            verdict_card = Div(
-                Div(
+            if "unavailable" in rationale.lower():
+                verdict_card = Div(
                     Div(
                         Div(
-                            I(data_lucide="gavel", cls="w-4 h-4 mr-2 text-amber-500 inline"),
-                            Span("LLM Governance Referee Verdict:", cls="text-slate-200 font-semibold text-xs"),
-                            Span(verdict_status, cls=f"text-[10px] font-bold px-2 py-0.5 rounded border ml-2.5 {badge_bg} {verdict_color}"),
+                            I(data_lucide="info", cls="w-4 h-4 mr-2 text-slate-400 inline"),
+                            Span("LLM Verification Status:", cls="text-slate-300 font-semibold text-xs"),
+                            Span("UNAVAILABLE", cls="text-[10px] font-bold px-2 py-0.5 rounded border ml-2.5 bg-slate-800 border-slate-700 text-slate-400"),
                             cls="flex items-center"
                         ),
-                        Span(f"Confidence: {confidence*100:.1f}%", cls="text-[10px] text-slate-400 font-mono"),
-                        cls="flex items-center justify-between border-b border-slate-800 pb-2 mb-3"
-                    ),
-                    P(rationale, cls="text-xs text-slate-350 leading-relaxed font-mono"),
-                    cls="p-4 bg-slate-900/40 border border-slate-850 rounded-lg mb-6"
+                        P(rationale, cls="text-xs text-slate-400 mt-2 leading-relaxed font-mono"),
+                        cls="p-4 bg-slate-900/40 border border-slate-800 rounded-lg mb-6"
+                    )
                 )
-            )
-
-        # ── 1. Contradiction Callout Banner ──
-        if is_contradiction:
-            callout = Div(
-                Div(
-                    Div(
-                        I(data_lucide="shield-alert", cls="w-5 h-5 text-red-500 mr-2.5 mt-0.5"),
-                        Div(
-                            Div("Potential Precedent Conflict Flagged", cls="text-sm font-bold text-red-400"),
-                            Div("This brief snippet potentially conflicts with established holdings from the evaluation corpus.", cls="text-xs text-red-500/80 mt-0.5"),
-                        ),
-                        cls="flex items-start"
-                    ),
-                    # Softmax Logits Progress Bar
+            else:
+                verdict_status = "CONFIRMED" if verdict_agreement else "DISMISSED"
+                verdict_color = "text-red-400" if verdict_agreement else "text-emerald-400"
+                badge_bg = "bg-red-500/10 border-red-500/30" if verdict_agreement else "bg-emerald-500/10 border-emerald-500/30"
+                
+                verdict_card = Div(
                     Div(
                         Div(
-                            Span("Model Contradiction Probability", cls="text-[10px] text-slate-400 uppercase tracking-wider"),
-                            Span(f"{contradiction_prob*100:.1f}%", cls="text-xs font-semibold text-red-400"),
-                            cls="flex items-center justify-between mb-1"
+                            Div(
+                                I(data_lucide="gavel", cls="w-4 h-4 mr-2 text-amber-500 inline"),
+                                Span("LLM Governance Referee Verdict:", cls="text-slate-200 font-semibold text-xs"),
+                                Span(verdict_status, cls=f"text-[10px] font-bold px-2 py-0.5 rounded border ml-2.5 {badge_bg} {verdict_color}"),
+                                cls="flex items-center"
+                            ),
+                            Span(f"Confidence: {confidence*100:.1f}%", cls="text-[10px] text-slate-400 font-mono"),
+                            cls="flex items-center justify-between border-b border-slate-800 pb-2 mb-3"
                         ),
-                        Div(
-                            Div(cls="bg-red-500 h-1.5 rounded-full", style=f"width: {contradiction_prob*100}%"),
-                            cls="w-full bg-slate-950 h-1.5 rounded-full overflow-hidden"
-                        ),
-                        cls="mt-4 border-t border-red-900/20 pt-3"
-                    ),
-                    cls="p-4 rounded-lg bg-red-950/15 border border-red-900/30 mb-6"
+                        P(rationale, cls="text-xs text-slate-350 leading-relaxed font-mono"),
+                        cls="p-4 bg-slate-900/40 border border-slate-850 rounded-lg mb-6"
+                    )
                 )
-            )
-        else:
-            callout = Div(
-                Div(
-                    I(data_lucide="shield-check", cls="w-5 h-5 text-emerald-500 mr-2.5"),
-                    Div(
-                        Div("No Precedent Conflict Detected", cls="text-sm font-bold text-emerald-400"),
-                        Div("Consistency check satisfied. Softmax contradiction probability is low (%.1f%%)." % (contradiction_prob*100), cls="text-xs text-slate-400 mt-0.5"),
-                    ),
-                    cls="flex items-center p-4 rounded-lg bg-emerald-950/10 border border-emerald-900/30 mb-6"
-                )
-            )
 
         # ── 2. Citation Chips ──
         chips_list = []
@@ -485,7 +459,6 @@ async def post(text: str):
 
         return Div(
             H3("Analysis Complete", cls="text-sm font-bold text-slate-100 mb-4 border-b border-slate-800 pb-2"),
-            callout,
             verdict_card,
             citations_section,
             matches_section

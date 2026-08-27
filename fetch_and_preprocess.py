@@ -305,44 +305,8 @@ def clean_judgment_text(raw: str) -> str:
 #  AIR / SCC / SCR / SCALE / ILR / JT / SCWR / MLJ / CLT / GLH / PLR /
 #  BLJR / NLJ / INSC (neutral) / SLP & Writ procedural numbers
 #
-_STATES = (
-    r"(?:SC|Bom|Cal|Del|Mad|All|Ker|Guj|Pat|Raj|MP|AP|Ori|Kar|HP|PH|"
-    r"J&K|Goa|Meg|Tri|Man|Nag|Lah|Sind|Hy|Mys|Utr|Jhar|Chh|Tel)"
-)
-_CITATION_PATTERNS: Dict[str, re.Pattern] = {
-    "AIR":        re.compile(rf"\bAIR\s+\d{{4}}\s+{_STATES}\s+\d+\b", re.I),
-    "SCR":        re.compile(r"\(\d{4}\)\s+\d+\s+SCR\s+\d+", re.I),
-    "SCC":        re.compile(r"\(\d{4}\)\s+\d+\s+SCC(?:\s+\(Supp\))?\s+\d+", re.I),
-    "SCALE":      re.compile(r"\b\d{4}\s+(?:\(\d+\)\s+)?SCALE\s+\d+\b", re.I),
-    "ILR":        re.compile(
-        r"\bILR\s+(?:\(\d{4}\)\s+)?\d+\s+"
-        r"(?:Delhi|Bom|Cal|Mad|All|Ker|Guj|Pat|Raj|MP|AP|Ori|Kar|HP|Punjab|Haryana)\s+\d+\b",
-        re.I,
-    ),
-    "JT":         re.compile(r"\bJT\s+\d{4}\s+\(\d+\)\s+SC\s+\d+\b", re.I),
-    "SCWR":       re.compile(r"\b\d{4}\s+SCWR\s+\d+\b", re.I),
-    "MLJ":        re.compile(r"\b\d{4}\s+\(\d+\)\s+MLJ\s+\d+\b", re.I),
-    "CLT":        re.compile(r"\b\d{4}\s+\(\d+\)\s+CLT\s+\d+\b", re.I),
-    "GLH":        re.compile(r"\b\d{4}\s+\(\d+\)\s+GLH\s+\d+\b", re.I),
-    "PLR":        re.compile(r"\b\d{4}\s+(?:\(\d+\)\s+)?PLR\s+\d+\b", re.I),
-    "BLJR":       re.compile(r"\b\d{4}\s+BLJR\s+\d+\b", re.I),
-    "NLJ":        re.compile(r"\bNLJ\s+\d{4}\s+(?:SC\s+)?\d+\b", re.I),
-    "INSC":       re.compile(r"\b\d{4}\s+INSC\s+\d+\b", re.I),
-    "SLP":        re.compile(
-        r"\bSLP\s+(?:\(Civil\)|\(Criminal\))?\s*No\.?\s*\d+(?:[-–]\d+)?\s+of\s+\d{4}\b",
-        re.I,
-    ),
-    "WRIT":       re.compile(
-        r"\bWrit\s+Petition\s+(?:\(Civil\)|\(Criminal\))?\s*No\.?\s*\d+\s+of\s+\d{4}\b",
-        re.I,
-    ),
-}
+from utils import _CITATION_PATTERNS, make_token as _make_token
 
-
-def _make_token(raw: str) -> str:
-    token = re.sub(r"[\s()/]+", "_", raw.strip())
-    token = re.sub(r"_+", "_", token).strip("_")
-    return token.upper()
 
 
 def tag_citations(

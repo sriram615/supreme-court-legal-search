@@ -4,7 +4,10 @@
 **Engine:** Indian Supreme Court Legal Search Engine (`search_engine.py`)  
 **Corpus:** `LAWdata_Corpus_2024/aws_court_chunks.jsonl` (15,847 chunks across 782 parent judgments)  
 **Evaluation Set:** `data/eval_set.jsonl` (120 queries across 120 unique parent judgments, strict judgment-first extraction)  
-**Raw Evidence Log:** [eval/raw_results.jsonl](file:///Users/apple/Desktop/AI-ML/LAWdata/eval/raw_results.jsonl)  
+- **Execution Timestamp:** 2026-08-26 14:32:10 IST  
+- **Evaluated Dataset:** `data/eval_set.jsonl` (120 Ground-Truth Queries across 4 intent categories)  
+- **Target Architecture:** Intel Mac (x86_64 CPU)  
+- **Raw Evidence Log:** [eval/raw_results.jsonl](eval/raw_results.jsonl)  
 
 ---
 

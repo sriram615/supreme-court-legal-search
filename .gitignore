@@ -1,7 +1,20 @@
 # Exclude heavy dataset folders and databases
 LAWdata_Corpus_2024/
-data/
+aws_court_chunks.jsonl
+data/tmp/
+data/processed/
+data/*.zip
+data/*.tar
 *.index
+*.faiss
+*.zip
+*.tar
+*.tar.gz
+metadata_map.json
+embeddings.npy
+case_search_console_frontend/
+case_search_console_frontend.zip
+.sesskey
 *.db
 *.sqlite3
 *.pdf
@@ -13,6 +26,7 @@ data/
 __pycache__/
 *.pyc
 .venv/
-venv/
-.DS_Store
 .venv311/
+venv/
+.pytest_cache/
+.DS_Store

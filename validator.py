@@ -50,43 +50,8 @@ class VerificationVerdict(BaseModel):
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 2 ─ CHRONOLOGICAL DECAY OPTIMIZATION
 # ─────────────────────────────────────────────────────────────────────────────
+from utils import extract_year_from_metadata as _extract_year_from_metadata, adjust_similarity_scores
 
-def _extract_year_from_metadata(metadata: Dict[str, Any]) -> int:
-    """Helper to extract document year from metadata structures (source_pdf or chunk_id)."""
-    source_pdf = metadata.get("source_pdf", "")
-    match = re.search(r"\b(19\d{2}|20\d{2})\b", source_pdf)
-    if match:
-        return int(match.group(1))
-
-    chunk_id = metadata.get("chunk_id", "")
-    match = re.search(r"_(19\d{2}|20\d{2})_", chunk_id)
-    if match:
-        return int(match.group(1))
-
-    # Default fallback to baseline anchor year
-    return 2024
-
-def adjust_similarity_scores(
-    results: List[Dict[str, Any]],
-    query_year: int = 2026,
-    decay_lambda: float = 0.005
-) -> List[Dict[str, Any]]:
-    """
-    Applies a linear decay penalty to similarity scores based on precedent age.
-    Formula: Adjusted_Score = Cosine_Similarity - (lambda * delta_years)
-    """
-    for r in results:
-        doc_year = _extract_year_from_metadata(r)
-        delta_years = max(0, query_year - doc_year)
-        cosine_sim = r.get("cosine_similarity", 0.0)
-        adjusted_score = cosine_sim - (decay_lambda * delta_years)
-        r["cosine_similarity"] = float(adjusted_score)
-
-    # Re-sort list by adjusted scores descending
-    results.sort(key=lambda x: x["cosine_similarity"], reverse=True)
-    for rank, r in enumerate(results, start=1):
-        r["rank"] = rank
-    return results
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 3 ─ ASYNC VERIFICATION CONTROLLER (OLLAMA CONNECTION BRIDGE)
@@ -148,13 +113,20 @@ async def _verify_via_ollama(
             data = _parse_json_defensively(content)
             return VerificationVerdict(**data)
         else:
-            logger.warning("Ollama API returned status %d. Falling back to Adversarial Mock Judge.", resp.status_code)
-            return _verify_via_adversarial_mock_judge(argument_text, precedent_text)
+            logger.warning("Ollama API returned status %d. Verification service unavailable.", resp.status_code)
+            return VerificationVerdict(
+                verdict_agreement=False,
+                legal_rationale="Reasoning unavailable. Ollama LLM verification service is offline.",
+                confidence_rating=0.0
+            )
             
     except Exception as exc:
-        # Graceful fallback to maintain client server readiness when local Ollama is offline
-        logger.debug("Local Ollama connection failed. Routing to Adversarial Mock Judge. Reason: %s", exc)
-        return _verify_via_adversarial_mock_judge(argument_text, precedent_text)
+        logger.debug("Local Ollama connection failed: %s", exc)
+        return VerificationVerdict(
+            verdict_agreement=False,
+            legal_rationale="Reasoning unavailable. Ollama LLM verification service is offline.",
+            confidence_rating=0.0
+        )
 
 def _parse_json_defensively(text: str) -> Dict[str, Any]:
     """Applies defensive regex parsing layers to recover JSON tokens from small models."""
@@ -174,69 +146,10 @@ def _parse_json_defensively(text: str) -> Dict[str, Any]:
     # Final default failure code block
     return {
         "verdict_agreement": False,
-        "legal_rationale": "Warning: Ollama JSON response could not be parsed defensively.",
+        "legal_rationale": "Reasoning unavailable. Ollama JSON response could not be parsed defensively.",
         "confidence_rating": 0.0
     }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# SECTION 4 ─ ADVERSARIAL MOCK JUDGE IMPLEMENTATION (ANTI-SELF-GRADING)
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _verify_via_adversarial_mock_judge(
-    argument_text: str,
-    precedent_text: str
-) -> VerificationVerdict:
-    """
-    Objective, deterministic rules-based mock referee with a confusion generator
-    simulating realistic human/LLM error margins (15% Class 1 divergence / 10% Class 0 false-positive).
-    """
-    text_bytes = (argument_text + precedent_text).encode("utf-8")
-    text_hash = int(hashlib.md5(text_bytes).hexdigest(), 16)
-    rng = random.Random(text_hash)
-
-    # Dictionary of standard semantic legal contradiction/conflict terms
-    indicators = [
-        "contradict", "overrule", "prejudicial", "disqualif", 
-        "reversal", "set aside", "error", "unjustified", 
-        "misconduct", "encroach", "conflict", "dilapidated"
-    ]
-    has_indicator = any(
-        ind in argument_text.lower() or ind in precedent_text.lower() 
-        for ind in indicators
-    )
-
-    base_class = has_indicator
-
-    # Explicit Confusion Generator
-    verdict_agreement = base_class
-    if base_class is True:
-        if rng.random() < 0.15:
-            verdict_agreement = False  # 15% random divergence
-    else:
-        if rng.random() < 0.10:
-            verdict_agreement = True   # 10% false-positive rate
-
-    confidence_rating = round(rng.uniform(0.72, 0.94), 3)
-    status_str = "CONFIRMED" if verdict_agreement else "DISMISSED"
-
-    if verdict_agreement == base_class:
-        rationale = (
-            f"Adversarial Referee consensus match. The statutory rule analysis checks "
-            f"confirm that a precedent contradiction issue is {status_str.lower()} with "
-            f"high semantic alignment. Confidence rating: {confidence_rating:.3f}."
-        )
-    else:
-        rationale = (
-            f"Adversarial Referee variance triggered. Disagreement simulated on "
-            f"precedent contradiction checks, yielding {status_str.lower()} outcome. "
-            f"Confidence rating: {confidence_rating:.3f}."
-        )
-
-    return VerificationVerdict(
-        verdict_agreement=verdict_agreement,
-        legal_rationale=rationale,
-        confidence_rating=confidence_rating
-    )
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 5 ─ BENCHMARK HARNESS & DATA ANTI-LEAKAGE ISOLATION

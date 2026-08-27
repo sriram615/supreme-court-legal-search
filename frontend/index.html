@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Case Search Console</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div class="app">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <button class="new-search-btn" id="newSearchBtn">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        New search
+      </button>
+      <button class="icon-btn sidebar-toggle" id="sidebarToggle" title="Collapse sidebar" aria-label="Collapse sidebar">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 2v12M2 4h4M2 8h4M2 12h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+
+    <div class="sidebar-section-label">Recent searches</div>
+    <nav class="history-list" id="historyList">
+      <!-- history items injected here -->
+      <p class="history-empty" id="historyEmpty">No searches yet</p>
+    </nav>
+
+    <div class="sidebar-footer">
+      <button class="text-btn" id="clearHistoryBtn">Clear history</button>
+      <div class="status-row">
+        <span class="status-dot" id="statusDot" title="Checking engine status…"></span>
+        <span class="status-label" id="statusLabel">Connecting…</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <header class="topbar">
+      <button class="icon-btn sidebar-open-btn" id="sidebarOpenBtn" title="Open sidebar" aria-label="Open sidebar">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><path d="M4 2v12M2 4h4M2 8h4M2 12h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      </button>
+      <div class="topbar-title">Case Search Console</div>
+      <button class="icon-btn theme-toggle" id="themeToggle" title="Toggle theme" aria-label="Toggle theme">
+        <svg id="themeIconSun" width="17" height="17" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="3.2" stroke="currentColor" stroke-width="1.4"/><path d="M8 1v1.4M8 13.6V15M15 8h-1.4M2.4 8H1M12.7 3.3l-1 1M4.3 11.7l-1 1M12.7 12.7l-1-1M4.3 4.3l-1-1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+        <svg id="themeIconMoon" width="17" height="17" viewBox="0 0 16 16" fill="none" style="display:none"><path d="M13.5 9.5A6 6 0 016.5 2.5a6 6 0 106.9 7z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+      </button>
+    </header>
+
+    <div class="transcript" id="transcript">
+      <div class="empty-state" id="emptyState">
+        <div class="empty-mark">§</div>
+        <h1>Search Indian Supreme Court precedent</h1>
+        <p>Paste a brief snippet, cite a section, or name a case — the engine finds matching precedent and checks it for contradictions.</p>
+        <div class="example-chips">
+          <button class="chip" data-example="Section 304B IPC dowry death essential ingredients">Section 304B IPC dowry death</button>
+          <button class="chip" data-example="Manisha Ravindra Panpatil v. State of Maharashtra">Manisha Ravindra Panpatil v. State of Maharashtra</button>
+          <button class="chip" data-example="anticipatory bail parameters economic offences PMLA">Anticipatory bail, economic offences</button>
+        </div>
+      </div>
+    </div>
+
+    <form class="composer" id="composerForm">
+      <div class="composer-inner">
+        <textarea
+          id="queryInput"
+          class="composer-input"
+          placeholder="Search a case, section, or paste a brief…"
+          rows="1"
+          autofocus
+        ></textarea>
+        <button type="submit" class="send-btn" id="sendBtn" title="Search" aria-label="Search">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 13V3M8 3L3.5 7.5M8 3l4.5 4.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <p class="composer-hint">Enter to search · Shift+Enter for a new line</p>
+    </form>
+  </main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
