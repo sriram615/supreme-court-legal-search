@@ -1,11 +1,29 @@
-fastapi
-uvicorn
-pydantic
-faiss-cpu
+# Pinned to the versions in .venv311 (Python 3.11.13) that the 97-test suite passes against.
+fastapi==0.139.0
+uvicorn==0.49.0
+pydantic==2.13.4
+faiss-cpu==1.12.0
+sentence-transformers==5.6.0
+transformers==4.43.4
+numpy==1.26.4
+torch==2.2.2
+rank-bm25==0.2.2
+httpx==0.28.1
+huggingface_hub==0.36.2
+
+# Agentic layer (agentic_layer.py). langchain-groq is required for the default
+# LLM_PROVIDER=groq; without it the rewrite/synthesis steps silently fall back.
+langgraph==1.2.11
+langchain-core==1.6.1
+langchain-groq==1.1.3
+
+# Used by benchmark_30_queries.py
+requests==2.34.2
+
+# Not installed in .venv311, so not pinned here (version unverified):
+# gradio is optional (app.py skips the /gradio mount if it is missing);
+# spacy / pdfplumber / pypdf are only for the ingestion pipeline.
 spacy
-sentence-transformers
-numpy
-torch
 pdfplumber
 pypdf
-rank-bm25
+gradio

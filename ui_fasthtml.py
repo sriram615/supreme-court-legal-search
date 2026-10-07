@@ -346,7 +346,7 @@ async def post(text: str):
             rationale = verdict.get("legal_rationale", "")
             confidence = verdict.get("confidence_rating", 0.0)
             
-            if "unavailable" in rationale.lower():
+            if verdict.get("available") is False or "unavailable" in rationale.lower():
                 verdict_card = Div(
                     Div(
                         Div(

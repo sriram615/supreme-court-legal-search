@@ -240,13 +240,25 @@
 
   function renderVerdict(verdict) {
     if (!verdict) return "";
-    // Defensive: verdict shape depends on validator.VerificationVerdict, render generically.
-    const label =
-      verdict.label || verdict.verdict || verdict.status ||
-      (verdict.contradicts === true ? "Possible contradiction" :
-       verdict.contradicts === false ? "No contradiction found" : "Verification result");
-    const reasoning = verdict.reasoning || verdict.explanation || verdict.detail || "";
-    const contradicts = verdict.contradicts === true || /contradict/i.test(String(label)) && !/no contradiction/i.test(String(label));
+    // Shape comes from validator.VerificationVerdict:
+    // { verdict_agreement: bool (true = contradiction found), legal_rationale: str, confidence_rating: 0..1 }
+    if (verdict.available === false) {
+      return `
+        <div class="section-label">Referee verification</div>
+        <div class="verdict-card">
+          <span class="verdict-icon" style="color:var(--text-faint)"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.4"/><path d="M8 7.5v4M8 5v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+          <div>
+            <div style="font-weight:600; margin-bottom:2px;">Verification unavailable</div>
+            <div style="color:var(--text-muted); font-size:13px;">No referee model could be reached, so this result was not checked for contradictions.</div>
+          </div>
+        </div>`;
+    }
+    const contradicts = verdict.verdict_agreement === true;
+    const baseLabel = contradicts ? "Possible contradiction" : "No contradiction found";
+    const conf = typeof verdict.confidence_rating === "number"
+      ? ` (${Math.round(verdict.confidence_rating * 100)}% confidence)` : "";
+    const label = baseLabel + conf;
+    const reasoning = verdict.legal_rationale || "";
     const icon = contradicts
       ? `<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.4"/><path d="M8 4.5v4M8 11v.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`
       : `<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;

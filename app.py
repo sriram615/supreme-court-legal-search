@@ -24,6 +24,7 @@ faiss.omp_set_num_threads(1)
 # ─────────────────────────────────────────────────────────────────────────────
 import os
 import re
+import asyncio
 import json
 import time
 import logging
@@ -40,9 +41,10 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-# Import custom search engine, validator layer, and utils
+# Import custom search engine, validator layer, agentic layer, and utils
 from search_engine import LegalSearchEngine
 from validator import verify_contradiction_async, VerificationVerdict
+from agentic_layer import run_agentic_search
 from utils import _CITATION_PATTERNS, make_token as _make_token
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -83,6 +85,14 @@ class AnalyzeResponse(BaseModel):
     semantic_matches: List[SemanticMatch] = Field(..., description="Top 3 nearest semantic precedents from the HNSW index.")
     verification_verdict: Optional[VerificationVerdict] = Field(None, description="Referee model verification results.")
 
+
+class AgenticAnalyzeResponse(BaseModel):
+    query_type: Optional[str] = None
+    rewritten_query: Optional[str] = None
+    semantic_matches: List[SemanticMatch] = Field(..., description="Top semantic precedents from retrieval.")
+    synthesized_answer: Optional[str] = None
+    used_chunk_ids: List[str] = Field(default_factory=list)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 5 ─ LIFESPAN STATE MANAGER
 # ─────────────────────────────────────────────────────────────────────────────
@@ -105,6 +115,10 @@ async def lifespan(app: FastAPI):
         )
     engine.load_index()
     
+    # ── Model Warm-Up ──
+    logger.info("Executing SentenceTransformer eager warm-up encode pass...")
+    _ = engine.model.encode(["warmup"], convert_to_numpy=True, normalize_embeddings=True)
+
     app.state.search_engine = engine
 
     # ── 2. Load Citation Mapping Dictionary ──
@@ -153,7 +167,8 @@ async def analyze_legal_brief(request: AnalyzeRequest):
         
         # ── Stage A: Semantic Precedent Retrieval (Top-3) ──
         engine: LegalSearchEngine = app.state.search_engine
-        semantic_matches = engine.search(query=request.text, top_k=3)
+        # search() is CPU-bound (embedding + BM25); run it off the event loop.
+        semantic_matches = await asyncio.to_thread(engine.search, query=request.text, top_k=3)
 
         # ── Stage B: Citation Resolution & Cross-Referencing ──
         resolved_citations = {}
@@ -193,7 +208,38 @@ async def analyze_legal_brief(request: AnalyzeRequest):
         logger.error("Analyze request failed: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal semantic query execution error: {str(exc)}"
+            detail="Internal semantic query execution error. See server logs for details."
+        )
+
+@app.post(
+    "/api/v1/agentic-analyze",
+    response_model=AgenticAnalyzeResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Agentic Legal Search with Intent-Aware Rewriting & Synthesis",
+)
+async def agentic_analyze(request: AnalyzeRequest):
+    """
+    Agentic search execution using LangGraph:
+    - Intent classification (CITATION_OR_CASE_NO, STATUTORY_SECTION, CASE_TITLE, CONCEPTUAL)
+    - Skip rewrite for exact identifier intents; reword conceptual queries
+    - Answer synthesis with inline chunk citations
+    """
+    try:
+        engine: LegalSearchEngine = app.state.search_engine
+        # Synchronous LLM calls (seconds) -- must not run on the event loop.
+        result = await asyncio.to_thread(run_agentic_search, engine, request.text, top_k=3)
+        return AgenticAnalyzeResponse(
+            query_type=result["query_type"],
+            rewritten_query=result["rewritten_query"],
+            semantic_matches=[SemanticMatch(**hit) for hit in result["hits"]],
+            synthesized_answer=result["answer"],
+            used_chunk_ids=result["used_chunk_ids"],
+        )
+    except Exception as exc:
+        logger.error("Agentic analyze request failed: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal agentic query execution error. See server logs for details."
         )
 
 @app.get(
@@ -223,19 +269,66 @@ async def health_check():
             }
         )
     except Exception as exc:
+        logger.error("Health check failed: %s", exc, exc_info=True)
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={
                 "status": "unhealthy",
-                "detail": str(exc)
+                "detail": "Engine not ready. See server logs for details."
             }
         )
 
-# Mount static frontend directory right before main entrypoint (after all API routes)
+# ─────────────────────────────────────────────────────────────────────────────
+# SECTION 8 ─ GRADIO UI MOUNT & FRONTEND MOUNT
+# ─────────────────────────────────────────────────────────────────────────────
+try:
+    import gradio as gr
+
+    def gradio_search(query_text: str):
+        if not query_text or len(query_text.strip()) < 3:
+            return "Please enter a legal query or brief snippet."
+        engine: LegalSearchEngine = getattr(app.state, "search_engine", None)
+        if not engine:
+            return "Search engine initializing..."
+        results = engine.search(query=query_text, top_k=3)
+        formatted = []
+        for i, hit in enumerate(results, 1):
+            formatted.append(
+                f"### Result {i}: {hit.get('parent_judgment_id', 'Unknown')}\n"
+                f"**Court:** {hit.get('court', 'Supreme Court of India')}\n"
+                f"**Cosine Sim:** {hit.get('cosine_similarity', 0):.4f} | **RRF Score:** {hit.get('rrf_score', 0):.4f}\n\n"
+                f"**Excerpt:**\n> {hit.get('text_chunk', '')}\n\n"
+                f"**Citations:** {', '.join(hit.get('extracted_citations', [])) or 'None'}\n"
+                f"---"
+            )
+        return "\n\n".join(formatted) if formatted else "No matching precedents found."
+
+    with gr.Blocks(title="Indian Supreme Court Legal Analytics Engine") as demo_ui:
+        gr.Markdown("# ⚖️ Indian Supreme Court Legal Analytics Engine")
+        gr.Markdown("Hybrid FAISS (HNSW) + BM25 Lexical Precedent Search & Contradiction Referee Engine")
+        with gr.Row():
+            with gr.Column():
+                query_input = gr.Textbox(
+                    label="Legal Brief / Search Query",
+                    placeholder="e.g. presumption of dowry death under section 113B Evidence Act",
+                    lines=3
+                )
+                submit_btn = gr.Button("🔍 Search Precedents", variant="primary")
+            with gr.Column():
+                output_box = gr.Markdown(label="Top Precedent Matches")
+        
+        submit_btn.click(fn=gradio_search, inputs=query_input, outputs=output_box)
+
+    demo = gr.mount_gradio_app(app, demo_ui, path="/gradio")
+except Exception as _gr_err:
+    logger.warning("Gradio mount skipped: %s", _gr_err)
+    demo = app
+
+# Serve static frontend web console at root /
 app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SECTION 8 ─ ENTRYPOINT & EXECUTION PATTERN
+# SECTION 9 ─ ENTRYPOINT & EXECUTION PATTERN
 # ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn

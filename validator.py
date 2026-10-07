@@ -4,6 +4,20 @@ validator.py
 Refactored validation & governance layer using a local Ollama connection bridge.
 Includes chronological decay, structured JSON fallback parsing, and an adversarial
 referee mock judge fallback to simulate human disagreement and model error rates.
+
+--------------------------------------------------------------------------------
+2026-08-30 patch: added a Groq cloud fallback for the referee (see
+verify_contradiction_async / _verify_via_groq below). Reason: Ollama's native
+macOS app requires macOS 14+, and Homebrew has no prebuilt bottle for Ollama on
+macOS 13 (it falls back to compiling rust/llvm/go/ollama from source, which is
+not a same-day install). This machine is on macOS 13. Rather than block on
+that, the referee now tries local Ollama first (unchanged behavior, free,
+private) and only calls out to Groq's cloud API if Ollama is unreachable AND
+GROQ_API_KEY is set in the environment -- otherwise it falls through to the
+same deterministic offline default as before. If/when Ollama gets installed
+here, this file needs no further changes; it'll just start being reachable
+again and Groq stops being used.
+--------------------------------------------------------------------------------
 """
 
 import os
@@ -13,7 +27,7 @@ import random
 import hashlib
 import asyncio
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
 
 import httpx
@@ -46,6 +60,11 @@ class VerificationVerdict(BaseModel):
         le=1.0,
         description="Probability confidence rating float bound between 0.0 and 1.0."
     )
+    available: bool = Field(
+        True,
+        description="False when no referee actually produced this verdict (LLM offline, rate-limited, or unparseable output). "
+                    "In that case verdict_agreement/confidence_rating are placeholders and must not be read as a result."
+    )
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 2 ─ CHRONOLOGICAL DECAY OPTIMIZATION
@@ -54,29 +73,11 @@ from utils import extract_year_from_metadata as _extract_year_from_metadata, adj
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SECTION 3 ─ ASYNC VERIFICATION CONTROLLER (OLLAMA CONNECTION BRIDGE)
+# SECTION 3 ─ ASYNC VERIFICATION CONTROLLER (OLLAMA CONNECTION BRIDGE + GROQ FALLBACK)
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def verify_contradiction_async(
-    argument_text: str,
-    precedent_text: str
-) -> VerificationVerdict:
-    """
-    Asynchronously audit automated contradiction flags using our local Ollama inference engine
-    pointing straight to http://localhost:11434/api/generate.
-    Falls back gracefully to the deterministic rules-based Adversarial Mock Judge if Ollama is offline.
-    """
-    return await _verify_via_ollama(argument_text, precedent_text, model="phi3")
-
-async def _verify_via_ollama(
-    argument_text: str,
-    precedent_text: str,
-    model: str = "phi3"
-) -> VerificationVerdict:
-    """Invokes local Ollama endpoint requesting structured JSON outputs."""
-    url = "http://localhost:11434/api/generate"
-    
-    prompt = (
+def _referee_prompt() -> str:
+    return (
         "You are an elite Supreme Court evaluator auditing an automated anomaly flag.\n"
         "Compare the following User Argument snippet with the Top Precedent holding. "
         "Determine if the User Argument directly contradicts, overrules, or violates the precedent.\n"
@@ -88,12 +89,67 @@ async def _verify_via_ollama(
         "}\n"
         "Respond ONLY with the JSON object. Do not include any other text outside the JSON."
     )
-    
+
+
+def _offline_default() -> VerificationVerdict:
+    return VerificationVerdict(
+        verdict_agreement=False,
+        legal_rationale="Reasoning unavailable. Ollama LLM verification service is offline.",
+        confidence_rating=0.0,
+        available=False,
+    )
+
+
+async def verify_contradiction_async(
+    argument_text: str,
+    precedent_text: str
+) -> VerificationVerdict:
+    """
+    Asynchronously audit automated contradiction flags.
+
+    Tries the local Ollama inference engine (http://localhost:11434, model
+    "phi3") first -- free, private, and the original design. If Ollama is
+    unreachable and GROQ_API_KEY is set in the environment, falls back to
+    Groq's cloud API instead of silently returning the deterministic offline
+    default. Only falls all the way through to that offline default if
+    neither is available. See the module-level patch note at the top of this
+    file for why the Groq fallback was added.
+    """
+    verdict, reachable = await _verify_via_ollama(argument_text, precedent_text, model="phi3")
+    if reachable:
+        return verdict
+
+    if os.environ.get("GROQ_API_KEY"):
+        return await _verify_via_groq(argument_text, precedent_text)
+
+    logger.warning(
+        "Ollama unreachable and GROQ_API_KEY is not set in the environment -- "
+        "returning the deterministic offline default. Run `echo $GROQ_API_KEY` "
+        "to check, then `export GROQ_API_KEY=...` in this shell before retrying."
+    )
+    return verdict
+
+
+async def _verify_via_ollama(
+    argument_text: str,
+    precedent_text: str,
+    model: str = "phi3"
+) -> Tuple[VerificationVerdict, bool]:
+    """
+    Invokes local Ollama endpoint requesting structured JSON outputs.
+    Returns (verdict, reachable) so the caller can tell "Ollama actually
+    answered" apart from "Ollama was unreachable, this is the offline
+    default" -- needed to decide whether to try the Groq fallback.
+    """
+    url = "http://localhost:11434/api/generate"
+
+    prompt = _referee_prompt()
+
     system_prompt = (
         f"USER ARGUMENT SNIPPET:\n{argument_text}\n\n"
         f"TOP PRECEDENT CASE TEXT:\n{precedent_text}\n"
     )
-    
+
     payload = {
         "model": model,
         "prompt": f"{system_prompt}\n\n{prompt}",
@@ -103,30 +159,92 @@ async def _verify_via_ollama(
         },
         "stream": False
     }
-    
+
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(url, json=payload, timeout=4.0)
-            
+
         if resp.status_code == 200:
             content = resp.json().get("response", "").strip()
             data = _parse_json_defensively(content)
-            return VerificationVerdict(**data)
+            return VerificationVerdict(**data), True
         else:
             logger.warning("Ollama API returned status %d. Verification service unavailable.", resp.status_code)
-            return VerificationVerdict(
-                verdict_agreement=False,
-                legal_rationale="Reasoning unavailable. Ollama LLM verification service is offline.",
-                confidence_rating=0.0
-            )
-            
+            return _offline_default(), False
+
     except Exception as exc:
         logger.debug("Local Ollama connection failed: %s", exc)
-        return VerificationVerdict(
-            verdict_agreement=False,
-            legal_rationale="Reasoning unavailable. Ollama LLM verification service is offline.",
-            confidence_rating=0.0
-        )
+        return _offline_default(), False
+
+
+async def _verify_via_groq(
+    argument_text: str,
+    precedent_text: str,
+    model: Optional[str] = None,
+) -> VerificationVerdict:
+    """
+    Cloud fallback referee via Groq's OpenAI-compatible chat completions API.
+    Only called by verify_contradiction_async when local Ollama is
+    unreachable and GROQ_API_KEY is set.
+    """
+    # llama-3.3-70b-versatile moved behind Groq's Enterprise tier and now 404s
+    # ("model_not_found") for a standard key -- confirmed against a live call on
+    # 2026-08-30. openai/gpt-oss-20b is what deploy/gcp/deploy.sh already sets
+    # as LLM_MODEL for Cloud Run, so it's used as the default here too.
+    # agentic_layer.py's Groq default now matches.
+    model = model or os.environ.get("GROQ_REFEREE_MODEL", "openai/gpt-oss-20b")
+    url = "https://api.groq.com/openai/v1/chat/completions"
+
+    prompt = _referee_prompt()
+    system_prompt = (
+        f"USER ARGUMENT SNIPPET:\n{argument_text}\n\n"
+        f"TOP PRECEDENT CASE TEXT:\n{precedent_text}\n"
+    )
+
+    headers = {"Authorization": f"Bearer {os.environ.get('GROQ_API_KEY', '')}"}
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": f"{system_prompt}\n\n{prompt}"}],
+        "temperature": 0.0,
+        "response_format": {"type": "json_object"},
+    }
+
+    max_attempts = 4
+    for attempt in range(1, max_attempts + 1):
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(url, json=payload, headers=headers, timeout=15.0)
+
+            if resp.status_code == 200:
+                content = resp.json()["choices"][0]["message"]["content"].strip()
+                data = _parse_json_defensively(content)
+                return VerificationVerdict(**data)
+
+            if resp.status_code == 429 and attempt < max_attempts:
+                # Free-tier TPM limit -- Groq's error body names how long to wait
+                # (e.g. "Please try again in 3.4575s"). Parse it and actually wait,
+                # instead of burning the call as a fake "offline" default.
+                wait_s = 5.0
+                m = re.search(r"try again in ([\d.]+)s", resp.text)
+                if m:
+                    wait_s = float(m.group(1)) + 0.5  # small buffer
+                logger.warning(
+                    "Groq rate-limited (attempt %d/%d), waiting %.1fs before retry: %s",
+                    attempt, max_attempts, wait_s, resp.text[:200],
+                )
+                await asyncio.sleep(wait_s)
+                continue
+
+            logger.warning("Groq API returned status %d: %s", resp.status_code, resp.text[:300])
+            return _offline_default()
+
+        except Exception as exc:
+            logger.warning("Groq referee call failed (%s: %s) -- falling back to offline default.", type(exc).__name__, exc)
+            return _offline_default()
+
+    logger.warning("Groq still rate-limited after %d attempts -- falling back to offline default.", max_attempts)
+    return _offline_default()
+
 
 def _parse_json_defensively(text: str) -> Dict[str, Any]:
     """Applies defensive regex parsing layers to recover JSON tokens from small models."""
@@ -134,7 +252,7 @@ def _parse_json_defensively(text: str) -> Dict[str, Any]:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
-        
+
     # Regex fallback structure fix-up layer
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if match:
@@ -142,12 +260,13 @@ def _parse_json_defensively(text: str) -> Dict[str, Any]:
             return json.loads(match.group(0))
         except json.JSONDecodeError:
             pass
-            
+
     # Final default failure code block
     return {
         "verdict_agreement": False,
         "legal_rationale": "Reasoning unavailable. Ollama JSON response could not be parsed defensively.",
-        "confidence_rating": 0.0
+        "confidence_rating": 0.0,
+        "available": False,
     }
 
 
@@ -160,6 +279,16 @@ async def run_benchmark_matrix(limit: int = 100) -> Dict[str, Any]:
     Validation matrix evaluator pulling data exclusively from the absolute
     bottom slice of raw preprocessed chunks (rows 15,747 to 15,847), ensuring
     complete isolation from early training splits.
+
+    NOTE: this compares verify_contradiction_async(text, text) -- the SAME
+    text on both sides -- against the Legal-BERT classifier's own prediction.
+    That measures inter-model agreement, not accuracy against any ground
+    truth, and is NOT a substitute for a real labeled evaluation. See
+    eval/precedent_referee_eval.py for a real one (distinct argument/
+    precedent pairs against hand-reviewed labels drawn from the corpus).
+    Left unchanged here for backward compatibility with anything that
+    already calls it -- just don't quote its precision/recall/F1 as if
+    they mean accuracy.
     """
     import torch
     from transformers import AutoTokenizer, AutoModelForSequenceClassification
@@ -181,7 +310,7 @@ async def run_benchmark_matrix(limit: int = 100) -> Dict[str, Any]:
     records = []
     with open(corpus_path, "r", encoding="utf-8") as f:
         lines = f.readlines()
-    
+
     # Grab validation slice from the absolute bottom 100 rows
     holdout_lines = [line for line in lines if line.strip()][-limit:]
     records = [json.loads(line) for line in holdout_lines]
@@ -256,7 +385,7 @@ async def run_benchmark_matrix(limit: int = 100) -> Dict[str, Any]:
 if __name__ == "__main__":
     # Execute statistical benchmark matrix over the bottom 100 rows
     report_data = asyncio.run(run_benchmark_matrix(limit=100))
-    
+
     print("\n" + "=" * 60)
     print("      INDUSTRY-STANDARD CROSS-MODEL BENCHMARK REPORT")
     print("      (OLLAMA-BRIDGED BENCHMARK HARNESS - BOTTOM 100)")
