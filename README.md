@@ -6,6 +6,10 @@ correctly route four distinct query intents — case citations, case titles, sta
 sections, and open-ended conceptual questions — each through retrieval logic suited to it,
 rather than treating every query as a plain semantic-similarity lookup.
 
+## Live Demo
+
+**[legal-search-engine-647843291725.us-central1.run.app](https://legal-search-engine-647843291725.us-central1.run.app)** — deployed on GCP Cloud Run.
+
 ## What it does
 
 - **Search** — case titles, statutory sections (e.g. "Section 304B IPC"), citations (e.g.
