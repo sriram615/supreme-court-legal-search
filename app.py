@@ -40,11 +40,16 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from dotenv import load_dotenv
 
-# Import custom search engine, validator layer, agentic layer, and utils
+load_dotenv()
+
+# Import custom search engine, validator layer, and utils.
+# agentic_layer (run_agentic_search) is imported lazily inside the
+# /api/v1/agentic-analyze handler so the server starts even when langgraph
+# is not installed (agentic search is optional; see README "Agentic search").
 from search_engine import LegalSearchEngine
 from validator import verify_contradiction_async, VerificationVerdict
-from agentic_layer import run_agentic_search
 from utils import _CITATION_PATTERNS, make_token as _make_token
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -227,6 +232,16 @@ async def agentic_analyze(request: AnalyzeRequest):
     try:
         engine: LegalSearchEngine = app.state.search_engine
         # Synchronous LLM calls (seconds) -- must not run on the event loop.
+        # Import lazily so the server boots even without langgraph installed.
+        try:
+            from agentic_layer import run_agentic_search
+        except ImportError as exc:
+            logger.error("Agentic layer unavailable (langgraph not installed): %s", exc)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Agentic search is unavailable: langgraph is not installed. "
+                       "Install it with `pip install langgraph langchain-core langchain-groq`.",
+            )
         result = await asyncio.to_thread(run_agentic_search, engine, request.text, top_k=3)
         return AgenticAnalyzeResponse(
             query_type=result["query_type"],

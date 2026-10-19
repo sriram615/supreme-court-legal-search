@@ -1,14 +1,3 @@
----
-title: Indian Supreme Court Legal Search Engine
-emoji: ⚖️
-colorFrom: blue
-colorTo: indigo
-sdk: gradio
-sdk_version: 4.19.0
-app_file: app.py
-pinned: false
----
-
 # Supreme Court Legal Search Engine
 
 A hybrid semantic + lexical search engine over ~15,800 chunks of real Indian Supreme Court
@@ -34,6 +23,12 @@ rather than treating every query as a plain semantic-similarity lookup.
   If no LLM is configured it falls back to plain retrieval (`synthesized_answer: null`).
 - **Web console** — a chat-style interface for interactive search, with query history and
   live engine status.
+
+## Demo
+
+![Live demo of the web console searching "Section 304B IPC dowry death essential ingredients" — real backend, real citations, real synthesized answer](docs/demo.gif)
+
+The recording shows the console classifying a statutory-section query, skipping query rewrite (verbatim identifier preserved), retrieving real Supreme Court chunks, and synthesizing a cited answer — all against the live FastAPI backend.
 
 ## Architecture
 
@@ -113,6 +108,7 @@ tests/                 Pytest regression suite
 data/, eval/           Evaluation query set and retrieval-quality results
 validator.py           LLM-based precedent-contradiction verification (Ollama, Groq fallback)
 fetch_and_preprocess.py  Corpus ingestion / chunking pipeline
+run_pipeline.sh          End-to-end build script (preprocess + index)
 BUILD_REPORT.md        Detailed build, benchmark, and verification log
 ```
 
@@ -125,6 +121,22 @@ uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
 Open `http://127.0.0.1:8000/` for the web console, or call `/api/v1/analyze` directly.
+
+### Data requirements
+
+The search corpus (`LAWdata_Corpus_2024/aws_court_chunks.jsonl`, the FAISS index,
+and `metadata_map.json`) is **gitignored and not included in this repository** — it
+is a ~80 MB download/derivative. `search_engine.py` will raise `FileNotFoundError`
+if the index artifacts are absent, and `app.py` refuses to start without a
+pre-built full-corpus index. Before running, either:
+
+1. Build the corpus and index yourself via `fetch_and_preprocess.py` →
+   `search_engine.py`, or
+2. Restore `LAWdata_Corpus_2024/` (index + metadata map) from wherever you
+   obtained the source data.
+
+The `data/processed/aws_court_chunks.jsonl` file is a stale 85-chunk test artifact
+and must **not** be used as the corpus (see `flow.md` §1.2 and `decisions.md` §2.2).
 
 ## Tech stack
 

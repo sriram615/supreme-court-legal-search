@@ -28,7 +28,7 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional, Set
 import re
-from utils import adjust_similarity_scores
+from utils import adjust_similarity_scores, extract_year_from_metadata
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -216,9 +216,10 @@ def evaluate_routed_relevance(
     """
     if config is None:
         config = {
-            "conceptual_semantic_floor": 0.45,
-            "conceptual_min_matched_tokens": 2,
-            "conceptual_bm25_floor": 4.0,
+            "semantic_floor": 0.40,
+            "lexical_floor_2a": 4.0,
+            "lexical_floor_2b": 6.0,
+            "min_matched_tokens": 1,
         }
 
     if not hit:
@@ -338,33 +339,37 @@ def evaluate_routed_relevance(
 
         # Check for foreign jurisdiction disqualification
         foreign_matched = [w for w in q_lower_words if w in FOREIGN_JURISDICTION_VOCAB and w not in doc_tokens]
-        if foreign_matched and cosine_sim < 0.45:
+        semantic_floor = float(config.get("semantic_floor", 0.40))
+        if foreign_matched and cosine_sim < semantic_floor:
             return {
                 "is_relevant": False,
                 "query_type": q_type,
                 "meta_verified": False,
                 "matched_meaningful_tokens": [],
-                "gate_reason": f"Foreign jurisdiction tokens {foreign_matched} present with low FAISS cosine {cosine_sim:.4f} < 0.45",
+                "gate_reason": f"Foreign jurisdiction tokens {foreign_matched} present with low FAISS cosine {cosine_sim:.4f} < {semantic_floor}",
             }
 
         # Substantive query tokens (strip English stops + procedural vocab)
         substantive_q_tokens = [t for t in content_tokens if t not in PROCEDURAL_VOCAB]
         matched_substantive = [t for t in substantive_q_tokens if t in doc_tokens]
         n_sub = len(matched_substantive)
+        min_tokens = int(config.get("min_matched_tokens", 1))
 
-        # Path 1: Strong Semantic Match (FAISS >= 0.40 AND >= 1 substantive token)
-        sem_pass = (cosine_sim >= 0.40) and (n_sub >= 1)
+        # Path 1: Strong Semantic Match (FAISS >= semantic_floor AND >= min_tokens substantive token)
+        sem_pass = (cosine_sim >= semantic_floor) and (n_sub >= min_tokens)
 
         # Path 2: Lexical / BM25 Match (with semantic floor >= 0.25 to reject pure non-legal OOD)
-        lex_pass_2a = (cosine_sim >= 0.30) and (bm25_score >= 4.0) and (n_sub >= 2)
-        lex_pass_2b = (cosine_sim >= 0.25) and (bm25_score >= 6.0) and (n_sub >= 1)
+        lexical_floor_2a = float(config.get("lexical_floor_2a", 4.0))
+        lexical_floor_2b = float(config.get("lexical_floor_2b", 6.0))
+        lex_pass_2a = (cosine_sim >= 0.30) and (bm25_score >= lexical_floor_2a) and (n_sub >= 2)
+        lex_pass_2b = (cosine_sim >= 0.25) and (bm25_score >= lexical_floor_2b) and (n_sub >= min_tokens)
         lex_pass = lex_pass_2a or lex_pass_2b
 
         is_relevant = sem_pass or lex_pass
 
         reasons = []
         if sem_pass:
-            reasons.append(f"Semantic pass (Cosine {cosine_sim:.4f} >= 0.40, substantive matched: {n_sub} >= 1)")
+            reasons.append(f"Semantic pass (Cosine {cosine_sim:.4f} >= {semantic_floor:.2f}, substantive matched: {n_sub} >= {min_tokens})")
         if lex_pass:
             reasons.append(f"Lexical pass (BM25 {bm25_score:.4f}, substantive matched: {n_sub})")
 
@@ -386,8 +391,35 @@ def evaluate_relevance(
     semantic_threshold: float = 0.35,
     lexical_threshold: float = 3.0,
 ) -> Dict[str, Any]:
-    """Compatibility wrapper calling evaluate_routed_relevance."""
-    return evaluate_routed_relevance(hit, query)
+    """Compatibility wrapper calling evaluate_routed_relevance.
+
+    Passes through the caller-supplied thresholds so they actually reach the
+    conceptual-route gating logic instead of being silently dropped.
+    """
+    config = {
+        "semantic_floor": semantic_threshold,
+        "lexical_floor_2a": lexical_threshold,
+        # lexical_floor_2b and min_matched_tokens fall back to Route D defaults
+    }
+    return evaluate_routed_relevance(hit, query, config=config)
+
+
+def _apply_age_decay(
+    results: List[Dict[str, Any]],
+    query_year: int = 2026,
+    decay_lambda: float = 0.005,
+) -> None:
+    """Apply chronological age decay to the cosine_similarity of each result in place.
+
+    Mirrors ``adjust_similarity_scores`` decay math but does NOT re-sort, so the
+    caller's native ranking order (BM25 score or RRF score) is preserved. Only
+    the reported ``cosine_similarity`` field is adjusted.
+    """
+    for r in results:
+        doc_year = extract_year_from_metadata(r)
+        delta_years = max(0, query_year - doc_year)
+        cosine_sim = r.get("cosine_similarity", 0.0)
+        r["cosine_similarity"] = float(cosine_sim - (decay_lambda * delta_years))
 
 
 
@@ -945,6 +977,9 @@ class LegalSearchEngine:
                 meta["bm25_score"] = bm25_scores[idx]
                 results.append(meta)
             results.sort(key=lambda x: x["bm25_score"], reverse=True)
+            # Apply chronological age decay to cosine_similarity in every mode
+            # (ranking stays BM25-ordered; only the reported cosine is adjusted).
+            _apply_age_decay(results, query_year=query_year, decay_lambda=decay_lambda)
             results = results[:top_k]
             for r_idx, item in enumerate(results, start=1):
                 item["rank"] = r_idx
@@ -974,6 +1009,9 @@ class LegalSearchEngine:
                 results.append(meta)
 
             results.sort(key=lambda x: x["rrf_score"], reverse=True)
+            # Apply chronological age decay to cosine_similarity in every mode
+            # (ranking stays RRF-ordered; only the reported cosine is adjusted).
+            _apply_age_decay(results, query_year=query_year, decay_lambda=decay_lambda)
             results = results[:top_k]
             for r_idx, item in enumerate(results, start=1):
                 item["rank"] = r_idx
@@ -1008,7 +1046,7 @@ if __name__ == "__main__":
     hits = engine.search(demo_query, top_k=3)
     
     print("\n" + "=" * 80)
-    print(f"SEARH HITS FOR: '{demo_query}'")
+    print(f"SEARCH HITS FOR: '{demo_query}'")
     print("=" * 80)
     for hit in hits:
         print(f"Rank {hit['rank']} (Score: {hit['cosine_similarity']:.4f})")

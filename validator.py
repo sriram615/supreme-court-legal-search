@@ -69,7 +69,9 @@ class VerificationVerdict(BaseModel):
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 2 ─ CHRONOLOGICAL DECAY OPTIMIZATION
 # ─────────────────────────────────────────────────────────────────────────────
-from utils import extract_year_from_metadata as _extract_year_from_metadata, adjust_similarity_scores
+# (No decay helpers are used in this module; the import was removed because
+# neither extract_year_from_metadata nor adjust_similarity_scores is referenced
+# anywhere in validator.py.)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

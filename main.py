@@ -1,8 +1,9 @@
 """
-DEPRECATION NOTICE: main.py is deprecated.
-Please use app.py (uvicorn app:app) for production deployments.
+DEPRECATION NOTICE: main.py is deprecated. DO NOT RUN.
+Please use app.py (`uvicorn app:app`) for all deployments.
 app.py features async lifespan management, strict index missing validation,
-and multi-stage intent verification.
+and multi-stage intent verification. main.py is kept only for historical
+reference and will be removed in a future release.
 """
 
 import time

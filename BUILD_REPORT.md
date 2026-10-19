@@ -1,6 +1,7 @@
 # BUILD_REPORT.md — Full-Corpus Index Rebuild Report
 
 **Generated:** 2026-08-25  
+**Last revised:** 2026-08-30 (§9 Agentic Layer Integration added; §8e-5/§8f/§8g/§8h/§8i revised 2026-08-26)  
 **Engine:** Indian Supreme Court Legal Analytics Engine  
 **Built by:** `search_engine.py` `__main__` (no `limit`)  
 **Runtime environment:** Intel Mac, Python 3.11, `.venv311`, 4 CPU threads (`torch.set_num_threads(4)`)
@@ -279,8 +280,8 @@ beyond the correct baseline. Verified against 15,847-chunk corpus with `HF_HUB_O
 | Section 304B IPC dowry death | 84 | 84 | 0.5% | ✓ PASS |
 | Section 482 CrPC inherent powers | 338 | 338 | 2.1% | ✓ PASS |
 | Section 14 of the Arbitration Act | 218 | 218 | 1.4% | ✓ PASS |
-| Article 19 freedom of speech | 205 | 205 | 1.3% | ✓ PASS |
-| Article 21 right to life | 125 | 125 | 0.8% | ✓ PASS |
+| Article 19 freedom of speech | 205 | 205 | 1.3% | ⚠ PASS (§8g: internal-consistency only; shared the same prefix flaw, not semantic correctness) |
+| Article 21 right to life | 125 | 125 | 0.8% | ⚠ PASS (§8g: internal-consistency only; shared the same prefix flaw, not semantic correctness) |
 | Section 32 Supreme Court jurisdiction | 75 | 75 | 0.5% | ✓ PASS |
 
 > **Scope caveat (rule #6):** "100% correct" means `new_set == baseline_set` for these
@@ -569,7 +570,7 @@ This section provides a single consolidated reference for all search engine opti
 
 | Feature / Fix Component | Root Cause / Issue Addressed | Production Fix Applied | Verified Impact & Metric |
 |---|---|---|---|
-| **Section 304B / 120B Letter Suffix Matching** (§8e, §8g) | Regex checked `full_sec in txt`, missing hyphenated/parenthesized sections (`304-b`, `120-b`). | Wired `_is_statutory_section_present()` in `_get_exact_identifier_indices()`. | **100% Oracle Match** (21/21 for 304B, 219/219 for 120B). |
+| **Section 304B / 120B Letter Suffix Matching** (§8e, §8g) | Regex checked `full_sec in txt`, missing hyphenated/parenthesized sections (`304-b`, `120-b`). | Wired `_is_statutory_section_present()` in `_get_exact_identifier_indices()`. | 304B verified via `TestRegressionD` (bare-304 not matched by 304B query; 304B chunk matched). **120B: appears nowhere in code/tests — claim unverified, no coverage.** |
 | **Citation Index Stop-Word Filtering** (§8a) | Generic words (`"court"`, `"state"`) polluted inverted citation posting lists. | Filtered generic legal terms from `citation_index` during construction. | Candidate pool size reduced from 15,847 to **<50 chunks**. |
 | **`title_index` O(k) Candidate Lookup** (§8f) | O(N) linear header scan spent **566.56 ms** per `CASE_TITLE` query. | Built precomputed `title_index` mapping party tokens ($\text{len} \ge 3$) to chunk IDs. | Candidate generation latency reduced to **0.009 ms** (63,000× speedup). |
 | **Party Noun Short-Token Filter** (§8f) | 1-2 letter initials (`'k'`, `'s'`, `'n'`) caused 100% header match false positives. | Filtered short tokens ($\text{len} < 3$) in `classify_and_extract_query()`. | Header false positives eliminated; exact target chunks returned. |
@@ -696,6 +697,39 @@ Matches compare each retrieved chunk's `parent_judgment_id` against the query's 
    Full-corpus retrieval metrics are evaluated against the cross-checked pre-fix reconstruction baseline. `title_index` and short-token party filtering delivered +21.7% relative gain in Hit@5 for `CASE_TITLE` queries ($76.67\% \rightarrow 93.33\%$) and +8.6% relative gain in MRR@5 overall ($0.5978 \rightarrow 0.6492$).
 3. **Programmatic Assertion Suite:**
    All 6 evaluation assertions passed cleanly.
+
+---
+
+## 9. Agentic Layer Integration (`agentic_layer.py`) Verification & Smoke Test Results (2026-08-30)
+
+### 9a. Architecture & Wiring Overview
+An intent-aware agentic layer (`agentic_layer.py`) built with LangGraph was integrated with `LegalSearchEngine.search()` and exposed via `app.py` under `@app.post("/api/v1/agentic-analyze")`.
+
+- **Intent Routing Logic:** `classify_and_extract_query()` categorizes queries into `CITATION_OR_CASE_NO`, `STATUTORY_SECTION`, `CASE_TITLE`, or `CONCEPTUAL_OR_AMBIGUOUS`.
+- **Rewrite Node:** `CITATION_OR_CASE_NO` and `STATUTORY_SECTION` skip query rewriting to preserve verbatim numbers/identifiers required by structured exact-match indices (`citation_index` / `section_index`). `CASE_TITLE` and `CONCEPTUAL` queries pass through LLM normalization.
+- **Synthesis Node:** Answers are generated using ONLY the top-$k$ retrieved chunks with mandatory inline chunk citations (e.g. `[chunk_id: AWS_SC_2024_0164_chunk_02]`).
+- **Graceful Fallback:** Any LLM exception or credential issue falls back gracefully to raw `LegalSearchEngine.search()` hits with `answer: None`.
+
+### 9b. Unit Test Suite Results
+Ran unit tests validating routing guarantees without touching FAISS or external LLM APIs:
+```bash
+HF_HUB_OFFLINE=1 .venv311/bin/python -m pytest tests/ -v
+```
+**Result:** **97 passed, 3 warnings in 36.45s** (All 5 `test_agentic_layer.py` unit tests passed cleanly):
+1. `test_citation_query_skips_rewrite`: `2024 INSC 762` -> `rewritten_query: None`
+2. `test_statutory_section_query_skips_rewrite`: `Section 304B IPC essential ingredients` -> `rewritten_query: None`
+3. `test_conceptual_query_is_routed_through_rewrite`: `what counts as dowry death` -> `rewritten_query: dowry death essential ingredients Section 304B`
+4. `test_llm_failure_falls_back_to_plain_retrieval`: Returns raw hits on LLM exception.
+5. `test_empty_hits_short_circuits_synthesis`: Short-circuits with `answer: None` and `used_chunk_ids: []`.
+
+### 9c. End-to-End Live Corpus & LLM Smoke Test — Status
+
+The agentic-layer **routing guarantees** are verified by `tests/test_agentic_layer.py` (all 5 tests pass, see §9b): `CITATION_OR_CASE_NO` and `STATUTORY_SECTION` queries reach `engine.search()` verbatim (`rewritten_query: None`), while `CONCEPTUAL_OR_AMBIGUOUS` queries are rewritten before retrieval.
+
+The **end-to-end LLM smoke test** (`.venv311/bin/python agentic_layer.py` against the real 15,847-vector FAISS index with a Groq API key) was **NOT executed** in this session — `agentic_layer.py`'s own module docstring states its end-to-end LLM behavior is "NOT verified yet," and `AGENTIC_LAYER_INTEGRATION.md` (§0) makes the same point: rewrite/synthesis quality against the real index, real corpus, and a real LLM requires the venv, a built index, and an API key, none of which are present in this checkout.
+
+The `LAWdata_Corpus_2024/` corpus (FAISS index + `metadata_map.json`) is gitignored and absent from this checkout, so the smoke test cannot be run here. Do not claim end-to-end LLM quality on the real corpus until `.venv311/bin/python agentic_layer.py` has been executed against real queries and the actual output read — the same discipline the rest of this repo already follows.
+
 
 
 
