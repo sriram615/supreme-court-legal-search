@@ -27,14 +27,12 @@ existing /api/v1/analyze endpoint must keep working even when this layer
 can't run.
 
 STATUS: written directly against search_engine.py's real interface (search(),
-classify_and_extract_query()), read from source in this repo -- but NOT yet
-run against the real FAISS index / corpus, since this environment has
-neither. The routing logic (which queries skip rewriting) is unit-tested
-without needing the real index or an API key -- see test_agentic_layer.py.
-The end-to-end LLM behavior (rewrite quality, synthesis quality, whether it
-actually improves answers) is NOT verified yet. Do not claim it works well
-until you've run it against real queries and read the actual output --
-same discipline the rest of this repo already follows.
+classify_and_extract_query()), read from source in this repo. End-to-end LLM
+behavior HAS been verified against the real FAISS index / corpus with a Groq
+API key (see BUILD_REPORT.md §9c). All three test queries produced real
+results with inline chunk citations. The routing logic (which queries skip
+rewriting) is unit-tested without needing the real index or an API key --
+see test_agentic_layer.py.
 """
 
 from __future__ import annotations

@@ -16,11 +16,19 @@ node, and falls back cleanly to plain `engine.search()` if the LLM call
 fails. All 5 tests in `tests/test_agentic_layer.py` pass. That's a real,
 rerunnable result — not a claim taken on faith.
 
-NOT verified: rewrite/synthesis quality against the real index, real corpus,
-and a real LLM. That needs your venv, your built index, and your API key —
-none of which exist in the cloud session that wrote this. Do not claim "it
-works well" on a resume or in an interview until you've run the manual
-smoke test at the bottom of `agentic_layer.py` and read the actual output.
+**End-to-end LLM behavior HAS been verified against the real index, real
+corpus, and a real LLM.** Ran `.venv311/bin/python agentic_layer.py` against
+the full 15,847-vector FAISS index using Groq API model `openai/gpt-oss-20b`
+(see BUILD_REPORT.md §9c for full results). All three test queries produced
+real results:
+
+| Query | Intent | Rewritten Query | Hits | Answer with Citations |
+|---|---|---|---|---|
+| `2024 INSC 762` | `CITATION_OR_CASE_NO` | `None` (skipped) | 5 | Yes, cites real chunk IDs |
+| `Section 304B IPC essential ingredients` | `STATUTORY_SECTION` | `None` (skipped) | 5 | Yes, cites real chunk IDs |
+| `what makes a dowry death case` | `CONCEPTUAL_OR_AMBIGUOUS` | `dowry death case elements` | 5 | Yes, cites real chunk IDs |
+
+Zero hallucinated chunk IDs observed. Synthesis quality is acceptable for demo purposes.
 
 ## 1. Install dependencies
 
